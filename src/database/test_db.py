@@ -1,7 +1,12 @@
-from db_connection import get_connection
+from sqlalchemy import create_engine
 
-conn = get_connection()
+DATABASE_URL = "postgresql://support_system_zqqv_user:4TZQBDlkV9azUaKBppicWnyRyKimLVOO@dpg-d72ihi99fqoc73aa2nbg-a.singapore-postgres.render.com/support_system_zqqv"
 
-if conn:
-    print("Connection test successful!")
+engine = create_engine(DATABASE_URL)
+
+try:
+    conn = engine.connect()
+    print("✅ Database Connected Successfully!")
     conn.close()
+except Exception as e:
+    print("❌ Connection Failed:", e)

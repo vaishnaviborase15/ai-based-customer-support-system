@@ -3,13 +3,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from src.database.connection import get_db
 import pandas as pd
-from src.model.predict import predict_all   # ✅ USE MODEL
+from src.model.predict import predict_all   # USE MODEL
 
 router = APIRouter()
 
-# =========================================
-# 🔥 1. CREATE NEW TICKET (MODEL BASED)
-# =========================================
+# CREATE NEW TICKET (MODEL BASED)
 @router.post("/new-ticket")
 def create_ticket(
     customer_name: str = Form(...),
@@ -18,21 +16,17 @@ def create_ticket(
     db: Session = Depends(get_db)
 ):
     try:
-        # =========================
-        # 🤖 AI MODEL (FINAL)
-        # =========================
+        # AI MODEL (FINAL)
         sentiment, priority, response = predict_all(issue)
 
-        # =========================
-        # 💾 DATABASE INSERT
-        # =========================
+        # DATABASE INSERT
         query = text("""
             INSERT INTO tickets (
-                Customer_Name,
-                Product_Purchased,
-                Ticket_Description,
-                Ticket_Type,
-                Ticket_Priority,
+                customer_name,
+                product_purchased,
+                ticket_description,
+                ticket_type,
+                ticket_priority,
                 sentiment,
                 suggested_response,
                 is_high_priority
@@ -55,8 +49,8 @@ def create_ticket(
             "type": "Customer Query",
             "priority": priority,
             "sentiment": sentiment,
-            "response": response,
-            "is_high_priority": 1 if priority == "High" else 0
+            "response": response, 
+            "is_high_priority": 1 if priority.lower() in ["high", "critical"] else 0
         })
 
         db.commit()
@@ -72,57 +66,89 @@ def create_ticket(
         return {"error": str(e)}
 
 
-# =========================================
-# 📊 2. GET ALL TICKETS
-# =========================================
+# GET ALL TICKETS
 @router.get("/tickets")
 def get_tickets(db: Session = Depends(get_db)):
-    df = pd.read_sql("SELECT * FROM tickets LIMIT 50", db.bind)
-    return df.to_dict(orient="records")
+
+    result = db.execute(text("SELECT * FROM tickets LIMIT 1000"))
+    
+    rows = result.fetchall()
+    columns = result.keys()
+
+    data = []
+    for row in rows:
+        record = {}
+        for i, col in enumerate(columns):
+            value = row[i]
+
+            # Fix NaN safely
+            if isinstance(value, float) and pd.isna(value):
+                value = None
+
+            record[col] = value
+        
+        data.append(record)
+
+    return data
 
 
-# =========================================
-# 📈 3. INSIGHTS API
-# =========================================
+# COUNT
+@router.get("/count")
+def count(db: Session = Depends(get_db)):
+    result = db.execute(text("SELECT COUNT(*) FROM tickets"))
+    return {"total_rows": result.scalar()}
+
+# DEBUG COLUMNS
+@router.get("/debug-columns")
+def debug_columns(db: Session = Depends(get_db)):
+    result = db.execute(text("SELECT * FROM tickets LIMIT 1"))
+    return list(result.keys())
+
+# DROP TABLE
+@router.get("/drop-table")
+def drop_table(db: Session = Depends(get_db)):
+    db.execute(text("DROP TABLE IF EXISTS tickets"))
+    db.commit()
+    return {"message": "Table dropped"}
+
+
+# INSIGHTS API
 @router.get("/insights")
 def get_insights(db: Session = Depends(get_db)):
-    df = pd.read_sql("SELECT * FROM tickets", db.bind)
+    try:
+        total = db.execute(text("SELECT COUNT(*) FROM tickets")).scalar()
 
-    if 'Resolution_Hours' not in df.columns:
-        df['Resolution_Hours'] = 0
+        high_priority = db.execute(
+            text("SELECT COUNT(*) FROM tickets WHERE is_high_priority = 1")
+        ).scalar()
 
-    if 'Customer_Satisfaction_Rating' not in df.columns:
-        df['Customer_Satisfaction_Rating'] = 0
+        return {
+            "total_tickets": int(total or 0),
+            "high_priority": int(high_priority or 0),
+            "avg_resolution_time": 0,   # TEMP FIX
+            "avg_satisfaction": 0       # TEMP FIX
+        }
 
-    if 'is_high_priority' not in df.columns:
-        df['is_high_priority'] = 0
-
-    insights = {
-        "total_tickets": int(len(df)),
-        "high_priority": int(df['is_high_priority'].sum()),
-        "avg_resolution_time": float(df['Resolution_Hours'].mean()),
-        "avg_satisfaction": float(df['Customer_Satisfaction_Rating'].mean())
-    }
-
-    return insights
+    except Exception as e:
+        return {"error": str(e)}
 
 
-# =========================================
-# 😊 4. SENTIMENT DISTRIBUTION
-# =========================================
+# SENTIMENT DISTRIBUTION
 @router.get("/sentiment")
 def sentiment_analysis(db: Session = Depends(get_db)):
-    df = pd.read_sql("SELECT sentiment FROM tickets", db.bind)
 
-    if df.empty:
-        return {}
+    result = db.execute(text("""
+        SELECT sentiment, COUNT(*) 
+        FROM tickets 
+        GROUP BY sentiment
+    """))
 
-    return df['sentiment'].value_counts().to_dict()
+    data = {row[0]: row[1] for row in result}
+
+    return data
 
 
-# =========================================
-# 🤖 5. RESPONSE GENERATOR
-# =========================================
+# RESPONSE GENERATOR
 @router.post("/suggest-response")
 def suggest_response(text: str):
     sentiment, priority, response = predict_all(text)

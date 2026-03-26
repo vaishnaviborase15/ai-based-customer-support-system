@@ -1,4 +1,4 @@
-import mysql.connector
+"""import mysql.connector
 
 def get_connection():
     conn = mysql.connector.connect(
@@ -7,4 +7,4 @@ def get_connection():
         password="",   # default in XAMPP
         database="support_system"
     )
-    return conn
+    return conn"""

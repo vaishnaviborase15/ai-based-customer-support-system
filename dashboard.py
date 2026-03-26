@@ -29,6 +29,7 @@ with st.form("ticket_form"):
         name = st.text_input("👤 Customer Name")
     with col2:
         product = st.text_input("💻 Product")
+
     issue = st.text_area("📝 Describe your issue")
 
     submit = st.form_submit_button("🚀 Submit Ticket")
@@ -39,24 +40,37 @@ with st.form("ticket_form"):
             "product": product,
             "issue": issue
         }
-        response = requests.post(f"{API_URL}/new-ticket", data=data)
 
-        if response.status_code == 200:
-            result = response.json()
-            st.success("✅ Ticket Created Successfully!")
+        try:
+            response = requests.post(f"{API_URL}/new-ticket", data=data)
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("### 🤖 AI Response")
-                st.info(result["response"])
-            with col2:
-                st.markdown("### 📊 Analysis")
-                st.metric("Sentiment", result["sentiment"])
-                st.metric("Priority", result["priority"])
+            if response.status_code == 200:
+                result = response.json()
 
-            st.cache_data.clear()
-        else:
-            st.error("❌ Failed to create ticket")
+                # 🔥 HANDLE ERROR SAFELY
+                if "error" in result:
+                    st.error(result["error"])
+                else:
+                    st.success("✅ Ticket Created Successfully!")
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.markdown("### 🤖 AI Response")
+                        st.info(result.get("response", "No response generated"))
+
+                    with col2:
+                        st.markdown("### 📊 Analysis")
+                        st.metric("Sentiment", result.get("sentiment", "N/A"))
+                        st.metric("Priority", result.get("priority", "N/A"))
+
+                    st.cache_data.clear()
+
+            else:
+                st.error("❌ Failed to create ticket")
+
+        except Exception as e:
+            st.error(f"API Error: {e}")
 
 st.markdown("---")
 
@@ -65,12 +79,34 @@ st.markdown("---")
 # =========================
 @st.cache_data
 def get_data():
-    tickets = requests.get(f"{API_URL}/tickets").json()
-    insights = requests.get(f"{API_URL}/insights").json()
-    sentiment = requests.get(f"{API_URL}/sentiment").json()
-    return pd.DataFrame(tickets), insights, sentiment
+    try:
+        tickets_res = requests.get(f"{API_URL}/tickets")
+        insights_res = requests.get(f"{API_URL}/insights")
+        sentiment_res = requests.get(f"{API_URL}/sentiment")
+
+        if tickets_res.status_code != 200:
+            return pd.DataFrame(), {}, {}
+
+        tickets = tickets_res.json()
+        insights = insights_res.json() if insights_res.status_code == 200 else {}
+        sentiment = sentiment_res.json() if sentiment_res.status_code == 200 else {}
+
+        df = pd.DataFrame(tickets)
+
+        # 🔥 CLEAN NONE VALUES FOR UI
+        df = df.fillna("Unknown")
+
+        return df, insights, sentiment
+
+    except Exception as e:
+        st.error(f"API Error: {e}")
+        return pd.DataFrame(), {}, {}
 
 df, insights, sentiment = get_data()
+
+if df.empty:
+    st.warning("⚠️ No data available. Check API.")
+    st.stop()
 
 # =========================
 # FILTERS SIDEBAR
@@ -78,83 +114,92 @@ df, insights, sentiment = get_data()
 st.sidebar.header("🔍 Filters")
 
 ticket_type = st.sidebar.selectbox(
-    "📂 Ticket Type", ["All"] + list(df["Ticket_Type"].dropna().unique())
+    "📂 Ticket Type", ["All"] + sorted(df["ticket_type"].unique().tolist())
 )
 priority = st.sidebar.selectbox(
-    "⚡ Priority", ["All"] + list(df["Ticket_Priority"].dropna().unique())
+    "⚡ Priority", ["All"] + sorted(df["ticket_priority"].unique().tolist())
 )
-product = st.sidebar.selectbox(
-    "💻 Product", ["All"] + list(df["Product_Purchased"].dropna().unique())
+product_filter = st.sidebar.selectbox(
+    "💻 Product", ["All"] + sorted(df["product_purchased"].unique().tolist())
 )
 customer = st.sidebar.selectbox(
-    "👤 Customer", ["All"] + list(df["Customer_Name"].dropna().unique())
+    "👤 Customer", ["All"] + sorted(df["customer_name"].unique().tolist())
 )
 
 # =========================
 # APPLY FILTERS
 # =========================
 filtered_df = df.copy()
+
 if ticket_type != "All":
-    filtered_df = filtered_df[filtered_df["Ticket_Type"] == ticket_type]
+    filtered_df = filtered_df[filtered_df["ticket_type"] == ticket_type]
+
 if priority != "All":
-    filtered_df = filtered_df[filtered_df["Ticket_Priority"] == priority]
-if product != "All":
-    filtered_df = filtered_df[filtered_df["Product_Purchased"] == product]
+    filtered_df = filtered_df[filtered_df["ticket_priority"] == priority]
+
+if product_filter != "All":
+    filtered_df = filtered_df[filtered_df["product_purchased"] == product_filter]
+
 if customer != "All":
-    filtered_df = filtered_df[filtered_df["Customer_Name"] == customer]
+    filtered_df = filtered_df[filtered_df["customer_name"] == customer]
 
 # =========================
 # KPI CARDS
 # =========================
 st.markdown("## 📊 Key Performance Indicators")
+
 col1, col2, col3, col4 = st.columns(4)
+
 col1.metric("📄 Total Tickets", len(filtered_df))
 col2.metric("⚠️ High Priority", int(filtered_df['is_high_priority'].sum()))
-col3.metric("⏱ Avg Resolution Time", round(filtered_df['Resolution_Hours'].mean(), 2))
-col4.metric("⭐ Avg Satisfaction", round(filtered_df['Customer_Satisfaction_Rating'].mean(), 2))
+col3.metric("⏱ Avg Resolution Time", 0)
+col4.metric("⭐ Avg Satisfaction", 0)
+
 st.markdown("---")
 
 # =========================
-# SENTIMENT PIE CHART
+# SENTIMENT PIE
 # =========================
 st.subheader("😊 Sentiment Distribution")
-sent_counts = filtered_df['sentiment'].value_counts()
-fig1 = px.pie(
-    names=sent_counts.index,
-    values=sent_counts.values,
-    title="Sentiment Distribution",
-    color_discrete_sequence=px.colors.qualitative.Pastel
-)
-st.plotly_chart(fig1, use_container_width=True)
+
+if not filtered_df.empty:
+    fig1 = px.pie(
+        filtered_df,
+        names="sentiment",
+        title="Sentiment Distribution"
+    )
+    st.plotly_chart(fig1, use_container_width=True)
 
 # =========================
-# PRIORITY PIE CHART
+# PRIORITY PIE
 # =========================
 st.subheader("⚡ Priority Distribution")
-priority_counts = filtered_df['Ticket_Priority'].value_counts()
+
 fig2 = px.pie(
-    names=priority_counts.index,
-    values=priority_counts.values,
-    title="Priority Distribution",
-    color_discrete_sequence=px.colors.qualitative.Set3
+    filtered_df,
+    names="ticket_priority",
+    title="priority distribution"
 )
 st.plotly_chart(fig2, use_container_width=True)
 
 # =========================
-# TREND ANALYSIS
+# TREND
 # =========================
 st.subheader("📈 Tickets Over Time")
-if 'Date_of_Purchase' in filtered_df.columns:
+
+if 'date_of_purchase' in filtered_df.columns:
     df_date = filtered_df.copy()
-    df_date['Date'] = pd.to_datetime(df_date['Date_of_Purchase'], errors='coerce').dt.date
-    trend = df_date.groupby('Date').size().reset_index(name='Tickets')
-    fig3 = px.line(trend, x='Date', y='Tickets', title="Tickets Trend Over Time", markers=True)
+    df_date['date'] = pd.to_datetime(df_date['date_of_purchase'], errors='coerce').dt.date
+
+    trend = df_date.groupby('date').size().reset_index(name='Tickets')
+
+    fig3 = px.line(trend, x='date', y='Tickets', title="Tickets Trend")
     st.plotly_chart(fig3, use_container_width=True)
 
 st.markdown("---")
 
 # =========================
-# DATA TABLE
+# TABLE
 # =========================
 st.subheader("📋 Tickets Data")
 st.dataframe(filtered_df, use_container_width=True)
@@ -162,21 +207,19 @@ st.dataframe(filtered_df, use_container_width=True)
 # =========================
 # EXTRA ANALYSIS
 # =========================
-st.markdown("## 🔍 Top 10 Products & Customers")
+st.markdown("## 🔍 Top 10 Analysis")
+
 col1, col2 = st.columns(2)
+
 with col1:
     st.subheader("📌 Tickets by Product")
-    product_counts = filtered_df["Product_Purchased"].value_counts().head(10)
-    fig4 = px.bar(product_counts, x=product_counts.index, y=product_counts.values,
-                  color=product_counts.values, color_continuous_scale='Viridis')
+    fig4 = px.bar(filtered_df["product_purchased"].value_counts().head(10))
     st.plotly_chart(fig4, use_container_width=True)
 
 with col2:
     st.subheader("👤 Tickets by Customer")
-    customer_counts = filtered_df["Customer_Name"].value_counts().head(10)
-    fig5 = px.bar(customer_counts, x=customer_counts.index, y=customer_counts.values,
-                  color=customer_counts.values, color_continuous_scale='Plasma')
+    fig5 = px.bar(filtered_df["customer_name"].value_counts().head(10))
     st.plotly_chart(fig5, use_container_width=True)
 
 st.markdown("---")
-st.markdown("### 🤖 AI-Powered Customer Support System | Built with FastAPI + ML + Streamlit")
+st.markdown("### 🤖 AI-Powered Customer Support System | FastAPI + ML + Streamlit")
