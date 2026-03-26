@@ -1,10 +1,15 @@
 import pickle
+import os
 
-# Load models once
-with open("models/sentiment_model.pkl", "rb") as f:
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
+sentiment_path = os.path.join(BASE_DIR, "models", "sentiment_model.pkl")
+response_path = os.path.join(BASE_DIR, "models", "response_model.pkl")
+
+with open(sentiment_path, "rb") as f:
     sentiment_model = pickle.load(f)
 
-with open("models/response_model.pkl", "rb") as f:
+with open(response_path, "rb") as f:
     response_model = pickle.load(f)
 
 
