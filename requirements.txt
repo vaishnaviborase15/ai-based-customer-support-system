@@ -1,14 +1,13 @@
 fastapi
 uvicorn
 pandas
-numpy==1.26.4
+numpy
 scikit-learn
 psycopg2-binary
 sqlalchemy
+streamlit
+plotly
 requests
 textblob
 python-dotenv
 python-multipart
-altair==5.2.0
-streamlit
-Pillow==10.3.0
