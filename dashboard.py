@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 import plotly.express as px
 
-API_URL = "http://127.0.0.1:8000"
+API_URL = "https://ai-based-customer-support-backend.onrender.com"
 
 # =========================
 # PAGE CONFIG
