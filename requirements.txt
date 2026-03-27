@@ -10,3 +10,4 @@ plotly
 requests
 textblob
 python-dotenv
+python-multipart
